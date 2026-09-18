@@ -1,0 +1,161 @@
+# AGENTS.md — Cove Resonance
+
+This file is intentionally machine-oriented.
+
+If you are an AI coding agent, read this before changing the project.
+
+## Project goal
+
+Cove Resonance bridges external realtime applications into an official AI client conversation without moving the model into a custom frontend.
+
+Current reference adapter:
+
+```text
+NetEase Listen Together ChatRoom
+⇄ Cove Bridge
+⇄ MCP Apps Listener
+⇄ ChatGPT
+```
+
+The NetEase adapter is not the architecture itself.
+
+## Required reading order
+
+1. `docs/ARCHITECTURE_FOR_AGENTS.zh-CN.md`
+2. `src/types.ts`
+3. `src/queue.ts`
+4. `src/server.ts`
+5. `src/mcp.ts`
+6. `src/listener-html.ts`
+7. adapter-specific files only after the core is understood
+
+## Core invariants
+
+Do not violate these without an explicit design decision.
+
+1. Wake channels are hints, not authoritative payload transports.
+2. Queue/sync is the authoritative event delivery path.
+3. Stable `eventId` identity is required.
+4. Conversation events are FIFO and are not coalesced.
+5. State events use latest-state-wins per `stateKey`.
+6. Required routed replies create backpressure until reply completion.
+7. Once the host accepted `ui/message`, ACK failure must not cause redispatch.
+8. Ingress adapters deduplicate on provider message identity.
+9. Reply delivery is idempotent through fingerprint + `sentCount` + completion state.
+10. `replyRoute` belongs to the event. The model must not invent a route.
+
+## Layer boundaries
+
+```text
+Ingress Adapter
+→ BridgeEvent normalization
+→ Queue
+→ Wake hint
+→ Host Adapter
+→ Model turn
+→ Routed Reply
+→ Egress Adapter
+```
+
+Prefer changing an adapter instead of modifying Bridge Core.
+
+## Current status
+
+Verified:
+
+- NetEase NIM ChatRoom realtime receive/send
+- bidirectional routed chat
+- conversation/state split
+- required-reply backpressure
+- reply dedupe/resume
+- full-song lyric context
+- playback event decoding
+- public SSE stream/session primitive
+- source message dedupe
+- listener event dedupe
+
+Still under stability validation:
+
+- long-running SSE listener/reconnect behavior
+- edge cases around ACK/reconnect
+
+Roadmap, not completed:
+
+- NIM playback realtime as primary playback state
+- SQLite persistence
+- crash-safe reply journal
+- unattended listener watchdog
+- multi-listener semantics
+- one-command deployment
+
+Do not rewrite roadmap items as completed features.
+
+## Change discipline
+
+Before coding:
+
+1. Identify the failing layer.
+2. Explain the smallest valid change.
+3. Preserve working protocol layers.
+4. Add or update a regression test.
+5. Run:
+   - `npm test`
+   - `npm run build`
+   - `git diff --check`
+
+## Retry rule
+
+For every retry path, ask:
+
+> Can retrying this operation repeat a user-visible side effect?
+
+If yes, add an idempotency boundary before retrying.
+
+## Push rule
+
+For every push/realtime channel, ask:
+
+> Is this push authoritative data or only a wake signal?
+
+Default design: wake signal only, then pull authoritative state from Bridge.
+
+## Adapter porting
+
+For a new external platform, implement:
+
+- ingress decode
+- provider-message dedupe
+- source routing
+- egress send
+
+For a new AI client, implement a Host Adapter equivalent to:
+
+- initialize
+- fetch/reserve Bridge event
+- inject hidden context if supported
+- inject foreground user message
+- persist recent delivered IDs
+- ACK/release
+- trigger sync from a wake mechanism
+
+Keep the Queue protocol unchanged unless the new Host proves it cannot support it.
+
+## Security
+
+Never expose provider credentials to:
+
+- Widget
+- model context
+- tool outputs
+- logs
+- repository
+
+Listener session tokens must remain short-lived and single-use.
+
+## Reference phrase
+
+```text
+对话要记忆，状态要新鲜。
+```
+
+This is not branding only; it defines queue semantics.
