@@ -21,19 +21,20 @@ The NetEase adapter is not the architecture itself.
 
 ## Required reading order
 
-1. `docs/ARCHITECTURE_FOR_AGENTS.zh-CN.md`
-2. `src/types.ts`
-3. `src/queue.ts`
-4. `src/server.ts`
-5. `src/mcp.ts`
-6. `src/listener-html.ts`
-7. adapter-specific files only after the core is understood
+1. `docs/MINIMAL_LISTENER_PROTOCOL.md`
+2. `docs/ARCHITECTURE_FOR_AGENTS.zh-CN.md`
+3. `src/types.ts`
+4. `src/queue.ts`
+5. `src/server.ts`
+6. `src/mcp.ts`
+7. `src/listener-html.ts`
+8. adapter-specific files only after the core is understood
 
 ## Core invariants
 
 Do not violate these without an explicit design decision.
 
-1. Wake channels are hints, not authoritative payload transports.
+1. Wake channels are optional hints, not authoritative payload transports. A poll-only Listener must remain valid.
 2. Queue/sync is the authoritative event delivery path.
 3. Stable `eventId` identity is required.
 4. Conversation events are FIFO and are not coalesced.
@@ -136,7 +137,8 @@ For a new AI client, implement a Host Adapter equivalent to:
 - inject foreground user message
 - persist recent delivered IDs
 - ACK/release
-- trigger sync from a wake mechanism
+- trigger `sync` manually or on a polling interval
+- optionally add SSE / WebSocket / native push later as a wake optimization
 
 Keep the Queue protocol unchanged unless the new Host proves it cannot support it.
 

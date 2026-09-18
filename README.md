@@ -33,7 +33,7 @@ Cove Resonance 是一个面向 **MCP Apps / ChatGPT** 的双向消息桥实验�
 │  Conversation Stream     │
 │  State Stream            │
 │  Reply Route             │
-│  SSE Wake                │
+│  Sync / optional Wake    │
 └────────────┬─────────────┘
              │ HTTPS / MCP
              ▼
@@ -50,7 +50,7 @@ Cove Resonance 是一个面向 **MCP Apps / ChatGPT** 的双向消息桥实验�
 
 > 对话要记忆，状态要新鲜。
 
-SSE 只负责“敲门”，不直接承载聊天正文。真正的事件仍通过 `cove_bridge_sync` 从队列取出，因此重连不会绕开 reservation、幂等和 reply lock。
+最基础的 Listener **只需要轮询 `cove_bridge_sync`** 就能工作。SSE 只负责“敲门”，不直接承载聊天正文；它是低延迟优化，不是正确性的前提。真正的事件始终通过 Queue / `cove_bridge_sync` 取出，因此重连不会绕开 reservation、幂等和 reply lock。
 
 ## 5 分钟启动
 
@@ -98,6 +98,8 @@ npm start
 公网部署请在前面放 Caddy / Nginx / 其他 HTTPS reverse proxy。
 
 部署教程：**[docs/GETTING_STARTED.zh-CN.md](docs/GETTING_STARTED.zh-CN.md)**
+
+最小 Listener 协议（纯轮询基线）：**[docs/MINIMAL_LISTENER_PROTOCOL.md](docs/MINIMAL_LISTENER_PROTOCOL.md)**
 
 技术实现 / 移植教程：**[docs/ARCHITECTURE_FOR_AGENTS.zh-CN.md](docs/ARCHITECTURE_FOR_AGENTS.zh-CN.md)**
 

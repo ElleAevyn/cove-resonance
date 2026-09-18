@@ -509,7 +509,7 @@ statePendingByKey
 
 ---
 
-# 5. Listener：为什么不是普通轮询器
+# 5. Listener：先从最小纯轮询开始
 
 核心文件：
 
@@ -520,19 +520,79 @@ src/listenerWake.ts
 
 Listener 是 Host Adapter。
 
-它不是业务逻辑中心。
+它不是业务逻辑中心，也**不要求必须支持 SSE**。
 
-职责只有：
+最小 Listener 只需要：
 
 ```text
-初始化宿主
-维持 wake channel
-调用 sync
-投递 context
-投递 visible message
-ACK
-失败恢复
+定时 / 手动触发
+→ cove_bridge_sync
+→ 投递 context
+→ 投递 visible message
+→ ACK
 ```
+
+也就是说，**纯轮询就是可移植基线**。SSE / WebSocket / Push 都只是后面的延迟优化。
+
+更完整、可以直接交给编码 Agent 的最小协议见：
+
+**[MINIMAL_LISTENER_PROTOCOL.md](MINIMAL_LISTENER_PROTOCOL.md)**
+
+## 5.1 Level 0：手动 sync
+
+能力最弱的 Host 甚至不需要 timer：
+
+```text
+用户点击“同步”
+→ syncOnce()
+```
+
+只要这一层能跑通，就已经能验证 Queue、reservation、Host dispatch、ACK 和 routed reply。
+
+## 5.2 Level 1：纯轮询 Listener
+
+最基础实现：
+
+```ts
+await syncOnce()
+
+setInterval(() => {
+  void syncOnce()
+}, 3000)
+```
+
+3 秒只是示例。
+
+轮询间隔可以按客户端限制调整。它只影响延迟，不改变 Queue / reply / dedupe 的正确性。
+
+## 5.3 Level 2：Wake + Pull
+
+纯轮询跑通后，再加：
+
+```text
+SSE / WebSocket / native push
+→ wake
+→ syncOnce()
+```
+
+同时继续保留低频 fallback poll。
+
+因此 Cove Resonance 的 Listener 设计不是：
+
+```text
+SSE 替代轮询
+```
+
+而是：
+
+```text
+Pull = 正确性基线
+Wake = 低延迟加速
+```
+
+一句话：
+
+> push for latency, pull for correctness.
 
 ---
 
@@ -553,10 +613,14 @@ ui/notifications/initialized
 用户明确点击“开始监听”后才：
 
 ```text
-建立 SSE
-启动 fallback poll
 立即 sync 一次
+↓
+启动 60 秒 fallback poll
+↓
+尝试建立 SSE wake channel
 ```
+
+这里顺序很重要：即使 SSE 完全不可用，Listener 仍然可以靠纯轮询工作。
 
 这是刻意设计的。
 
@@ -564,9 +628,15 @@ ui/notifications/initialized
 
 ---
 
-# 7. SSE 只是一种 Wake Adapter
+# 7. SSE 只是一种可选 Wake Adapter
 
-当前实现：
+先强调一次：
+
+> **SSE 不是 Cove Resonance 的基础协议。基础协议是 sync / reserve / dispatch / ACK。**
+
+如果目标 Host 不支持 EventSource，直接停留在 Level 1 纯轮询即可，不需要修改 Queue 或 reply routing。
+
+当前参考实现：
 
 ```text
 cove_bridge_listener_session
