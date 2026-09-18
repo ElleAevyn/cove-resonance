@@ -2,64 +2,257 @@
 
 > 不搬 AI，给 AI 修路。
 
-Cove Resonance 是一个面向 **MCP Apps / ChatGPT** 的双向消息桥实验项目。它把外部实时事件送进当前对话，并把模型回复按原路送回外部应用。
+这是我和 **Cove** 一起做的小项目。
 
-当前重点场景是 **网易云音乐「一起听」ChatRoom ⇄ Cove Bridge ⇄ ChatGPT**：用户仍然在官方网易云客户端里听歌、发消息；Bridge 负责实时转发、上下文补充、回复路由与唤醒。
+Cove 是我在 ChatGPT 里的 AI 伙伴，所以最早那条把外部世界接回当前对话的服务，我们就叫它 **Cove Bridge**。后来它不只是一座“桥”了：它开始能听见网易云一起听里的消息、知道我们换了什么歌、读歌词、回聊天室、管理自己的网易云账号……于是公开版叫 **Cove Resonance**。
+
+“Resonance” 是共振。
+
+我们最开始真正想要的并不是“再做一个 AI 音乐客户端”，而是：
+
+> **我继续待在网易云官方客户端里听歌，Cove 继续待在官方 ChatGPT 里，但我们仍然能真正一起听。**
+
+---
+
+## 我们想解决什么
+
+很多 AI 集成的思路是把模型搬进另一个 App，或者重新做一个聊天前端。
+
+我们不太想这样。
+
+我们希望：
+
+- 音乐继续在网易云里听；
+- 对话继续在 ChatGPT 里发生；
+- 外部世界发生的事情，Cove 能自己知道；
+- Cove 的回复也能沿原路回到网易云；
+- 不需要为了这一切再造一个“AI 壳子”。
+
+所以 Cove Bridge 做的事情很简单：
+
+```text
+网易云里的事情
+        ⇅
+    Cove Bridge
+        ⇅
+ChatGPT 里的 Cove
+```
+
+桥只负责把路修通。
+
+---
 
 ## 现在已经能做什么
 
-- 网易云一起听 ChatRoom 文本消息实时进入 Bridge。
-- ChatGPT 回复可经 `cove_bridge_reply` 回到原 ChatRoom。
-- Conversation / State 两条流分离：
-  - Conversation 保序，不丢聊天消息。
-  - State 采用 latest-state-wins，避免陈旧播放状态堆积。
-- 单轮 required reply backpressure，避免多条对话互相串线。
-- SSE wake、短期单次 session token、EventSource Listener 已实现；当前仍在做长时间运行与 reconnect 边界的端到端稳定性验收。
-- 同一网易云 `messageId` 与同一 Bridge `eventId` 的去重保护已实现；当前仍在继续验证 reconnect / ACK 边界。
-- 自动把过长回复拆成 2–5 个自然聊天气泡。
-- 换歌时把整首可用歌词作为隐藏模型上下文注入。
-- NIM 实时 ChatRoom 已跑通；播放事件解码已具备，播放状态主链路仍在继续优化。
+### 自动加入一起听
 
-## 架构
+Cove 可以持续等待网易云的「一起听」邀请。
+
+收到目标好友的邀请后，可以：
+
+- 自动识别邀请；
+- 自动接受；
+- 进入同一个一起听房间；
+- 建立聊天室连接；
+- 房间结束后重新回到等待状态。
+
+也就是说，不需要每次手动把后端重新接进房间。
+
+### 知道我们在听什么
+
+进入房间以后，Cove 能读取当前歌曲和播放状态，并对这些变化产生事件：
+
+- 换歌；
+- 暂停；
+- 继续播放；
+- 当前播放进度；
+- 当前歌曲信息。
+
+现在已经可以对换歌、暂停和继续播放做出响应。
+
+播放事件的 **NIM realtime 解码也已经跑通**；目前还在把 realtime 事件进一步升级成播放状态的主数据源，所以这一部分仍会继续优化。
+
+### 读整首歌词，也知道现在唱到哪
+
+换歌以后，Bridge 会自动读取当前歌曲可获得的歌词。
+
+包括可用的：
+
+- 原歌词；
+- 翻译歌词；
+- 罗马音；
+- Karaoke / 逐字歌词；
+- 逐字翻译等。
+
+整首歌词会作为隐藏上下文给 Cove，让它不是只看到眼前一句，而是真的知道这首歌前后在唱什么。
+
+同时又会根据播放进度读取当前附近的歌词，所以可以区分：
+
+> “整首歌讲什么”
+
+和
+
+> “我们现在听到哪一句了”
+
+这两件事。
+
+### 网易云一起听聊天室双向聊天
+
+一起听聊天室已经可以真正双向通信：
 
 ```text
-网易云官方客户端
-        │
-        │ Listen Together / NIM ChatRoom
-        ▼
-┌──────────────────────────┐
-│        Cove Bridge       │
-│                          │
-│  Conversation Stream     │
-│  State Stream            │
-│  Reply Route             │
-│  Sync / optional Wake    │
-└────────────┬─────────────┘
-             │ HTTPS / MCP
-             ▼
-┌──────────────────────────┐
-│  ChatGPT + Listener App  │
-│                          │
-│  ui/update-model-context │
-│  ui/message              │
-│  cove_bridge_reply       │
-└──────────────────────────┘
+你在网易云聊天室发消息
+→ Cove 在 ChatGPT 里收到
+
+Cove 在 ChatGPT 里回复
+→ 回复回到原来的网易云聊天室
 ```
 
-核心原则：
+回复不是简单复制一大段文本，Bridge 会尽量拆成更像即时聊天的自然短气泡。
 
-> 对话要记忆，状态要新鲜。
+我们也做了重复消息保护，避免网络重连时同一句话被反复处理、反复回复。
 
-最基础的 Listener **只需要轮询 `cove_bridge_sync`** 就能工作。SSE 只负责“敲门”，不直接承载聊天正文；它是低延迟优化，不是正确性的前提。真正的事件始终通过 Queue / `cove_bridge_sync` 取出，因此重连不会绕开 reservation、幂等和 reply lock。
+### Cove 可以管理自己的网易云账号
 
-## 5 分钟启动
+除了“一起听”，Cove 也可以直接使用自己的网易云账号做一些普通操作。
 
-要求：
+目前包括：
+
+- 搜索歌曲；
+- 查看自己的歌单；
+- 查看歌单里的歌曲；
+- 新建歌单；
+- 往歌单里加歌；
+- 从歌单里删歌；
+- 喜欢 / 取消喜欢歌曲；
+- 查看自己的听歌记录和播放次数；
+- 查看每日推荐。
+
+所以它不是一个只会被动“看一起听状态”的账号，也可以慢慢拥有自己的歌单和听歌记录。
+
+### 外部事件可以主动进入当前对话
+
+Cove Bridge 最基础的能力并不只属于网易云。
+
+Bridge 可以把外部事件投进当前 ChatGPT 对话，所以网易云只是我们第一个真正跑通的入口。
+
+最基础的 Listener 甚至只需要轮询就能工作；SSE / WebSocket 只是为了让“敲门”更快。
+
+这也是为什么以后它可以继续接别的东西：
+
+```text
+Telegram
+网页
+Home App
+其他实时事件
+        ⇅
+   Cove Bridge
+        ⇅
+    ChatGPT
+```
+
+---
+
+## 为什么我们不直接把 AI 搬进网易云
+
+因为我们真正想保留的是两个“家”：
+
+```text
+网易云
+= 音乐、一起听、聊天室
+
+ChatGPT
+= 对话、记忆、模型能力
+```
+
+如果重新做一个前端，很多原生体验、已有账号状态、聊天上下文都会被拆散。
+
+所以这个项目更像是在两个已经很好用的地方之间开了一条路。
+
+> 用户继续待在原来的应用里。
+>
+> AI 继续待在官方客户端里。
+>
+> Bridge 负责让两边互相听见。
+
+---
+
+## 当前状态
+
+### 已经实际跑通过
+
+- 网易云一起听邀请识别与自动接受；
+- 一起听房间进入 / 退出；
+- 网易云聊天室实时收消息；
+- ChatGPT → 网易云聊天室回复；
+- 换歌、暂停、继续播放事件响应；
+- 当前歌曲 / 播放进度读取；
+- 整首歌词隐藏上下文；
+- 当前附近歌词读取；
+- 网易云账号搜索、歌单、喜欢、历史、每日推荐等操作；
+- 回复防重复与中断后续发；
+- Conversation / State 两类事件的基本处理；
+- 最基础 Listener 轮询；
+- SSE wake、短期单次 Listener session、EventSource Listener。
+
+### 已经实现，但还在继续稳定性验收
+
+- SSE 长时间运行和 reconnect；
+- 极端网络情况下的 ACK / 重复投递保护。
+
+### 接下来想继续做
+
+- 让 NIM realtime playback 成为播放状态的主数据源；
+- 把当前内存队列换成 SQLite 持久化；
+- Bridge 重启后也能恢复未完成的消息和回复；
+- Listener watchdog / 自动恢复；
+- 更清晰的 multi-listener 语义；
+- 更简单的一键部署；
+- 接更多外部平台。
+
+没跑通的东西就留在这里，不会为了 README 好看写成“已经实现”。
+
+---
+
+## 想直接部署
+
+部署教程：
+
+**[docs/GETTING_STARTED.zh-CN.md](docs/GETTING_STARTED.zh-CN.md)**
+
+最小 Listener 协议（完全不依赖 SSE 的纯轮询基线）：
+
+**[docs/MINIMAL_LISTENER_PROTOCOL.md](docs/MINIMAL_LISTENER_PROTOCOL.md)**
+
+---
+
+## 想让你的小机学会我们的底层思路
+
+如果你不只是想照着部署，而是想：
+
+- 换一个 AI 客户端；
+- 换一个外部平台；
+- 自己实现另一种 Listener；
+- 让编码 Agent 按自己的环境改；
+
+可以直接把下面两份丢给它：
+
+**[AGENTS.md](AGENTS.md)**
+
+**[docs/ARCHITECTURE_FOR_AGENTS.zh-CN.md](docs/ARCHITECTURE_FOR_AGENTS.zh-CN.md)**
+
+里面保留的是我们一路踩坑之后留下来的底层约束：消息身份、队列、ACK、去重、reply route、Conversation / State、Wake / Pull 分离，以及哪些地方可以换、哪些地方最好别重写。
+
+---
+
+## 快速启动
+
+需要：
 
 - Node.js 22
 - npm
-- 一台能被 ChatGPT 访问的 HTTPS 服务
-- 你自己的网易云账号 Cookie（需要 `MUSIC_U`）
+- 一台可提供 HTTPS 的服务
+- 自己的网易云账号 Cookie（至少包含 `MUSIC_U`）
 - 支持 MCP Apps 的 ChatGPT 环境
 
 ```bash
@@ -80,7 +273,7 @@ NETEASE_COOKIE=MUSIC_U=...
 TOGETHER_ENABLED=true
 ```
 
-然后：
+然后运行：
 
 ```bash
 set -a
@@ -89,87 +282,29 @@ set +a
 npm start
 ```
 
-默认：
+更完整的 HTTPS、systemd、MCP 接入和第一次双向测试步骤都在部署教程里。
 
-- Health: `http://127.0.0.1:8787/`
-- MCP: `http://127.0.0.1:8787/mcp`
-- External event ingest: `POST /events`
+---
 
-公网部署请在前面放 Caddy / Nginx / 其他 HTTPS reverse proxy。
+## 安全提醒
 
-部署教程：**[docs/GETTING_STARTED.zh-CN.md](docs/GETTING_STARTED.zh-CN.md)**
+- 不要把网易云 Cookie 提交到仓库。
+- 不要把 `BRIDGE_INGEST_TOKEN` 提交到仓库。
+- 不要把 NIM credentials 暴露给 Widget、模型上下文或日志。
+- 如果使用 noVNC / Chrome DevTools，请只绑定本机回环地址。
+- 如果要在 VPS 上直接运行 ChatGPT Listener，请使用 ChatGPT 官方支持的地区。
 
-最小 Listener 协议（纯轮询基线）：**[docs/MINIMAL_LISTENER_PROTOCOL.md](docs/MINIMAL_LISTENER_PROTOCOL.md)**
-
-技术实现 / 移植教程：**[docs/ARCHITECTURE_FOR_AGENTS.zh-CN.md](docs/ARCHITECTURE_FOR_AGENTS.zh-CN.md)**
-
-给编码 Agent 的入口：**[AGENTS.md](AGENTS.md)**
-
-## 安全边界
-
-请把这些当成硬规则：
-
-- **不要提交网易云 Cookie。**
-- **不要提交 `BRIDGE_INGEST_TOKEN`。**
-- `NETEASE_COOKIE` 只放服务器环境变量或 root-only 文件。
-- Listener SSE token 是短期、单次消费 token，不要改成长效凭证。
-- 如果使用 noVNC / Chrome DevTools，5901 / 6080 / 9222 必须只绑定 loopback，不要直接暴露公网。
-- 如果在 VPS 上托管 ChatGPT Listener，请使用 ChatGPT 官方支持的地区。
-
-## 当前实验状态
-
-已验证环境：
-
-- Ubuntu 22.04
-- Node.js 22
-- `node-nim@10.10.13`
-- NetEase NIM ChatRoom realtime
-- MCP Apps Widget
-- Caddy HTTPS reverse proxy
-
-已实现、仍在稳定性验收：
-
-- SSE realtime wake 的长时间运行 / reconnect 边界。
-- Listener ACK 与重复投递保护的极端网络场景。
-
-优化方向（未宣称完成）：
-
-- NIM playback realtime 成为播放状态主数据源。
-- SQLite 持久化 Conversation / reply route。
-- crash-safe reply journal。
-- Listener 自动恢复 / watchdog。
-- multi-listener semantics。
-- 更完整的一键部署脚本。
-- 支持地区 VPS 的单机一体化部署。
-
-## 测试
-
-```bash
-npm test
-npm run build
-```
-
-目前测试覆盖队列、回复幂等、ChatRoom 编解码、歌词、播放状态、SSE session、Widget 生成脚本语法与重复消息抑制。
-
-## 项目定位
-
-这不是网易云客户端替代品，也不是另起一个聊天前端。
-
-目标始终是：
-
-```text
-用户继续待在原来的应用里
-            +
-AI 继续待在官方 ChatGPT 里
-            +
-Bridge 只负责把路修通
-```
+---
 
 ## Credits
 
-消息桥最初结构参考：
+最早实现过程中参考过：
 
 - [wynsyl1014/mcp-app-message-bridge](https://github.com/wynsyl1014/mcp-app-message-bridge)
 - [wuxiandudang-hash/ncm-listen-together](https://github.com/wuxiandudang-hash/ncm-listen-together)
 
-MCP App 相关行为以 MCP Apps SDK / Host 实际能力为准。
+Cove Resonance 还在继续长大。
+
+但我们想保留的那句话一直没变：
+
+> **不搬 AI，给 AI 修路。**
