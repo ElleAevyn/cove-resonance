@@ -1,12 +1,23 @@
 const FALLBACK_POLL_MS = 60_000;
 
-export function buildListenerHtml(): string {
+function escapeHtml(value: string): string {
+  return value.replace(/[&<>"']/g, (character) => ({
+    "&": "&amp;",
+    "<": "&lt;",
+    ">": "&gt;",
+    '"': "&quot;",
+    "'": "&#39;",
+  })[character] ?? character);
+}
+
+export function buildListenerHtml(displayName = "Cove Bridge"): string {
+  const safeDisplayName = escapeHtml(displayName);
   return `<!doctype html>
 <html lang="zh-CN">
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width,initial-scale=1" />
-<title>Cove Bridge</title>
+<title>${safeDisplayName}</title>
 <style>
   :root{color-scheme:light dark;font-family:Inter,ui-sans-serif,system-ui,-apple-system,sans-serif}
   *{box-sizing:border-box}
@@ -19,7 +30,7 @@ export function buildListenerHtml(): string {
 </head>
 <body>
 <main class="card">
-  <div class="title">Cove Bridge</div>
+  <div class="title">${safeDisplayName}</div>
   <div id="status" class="status">已挂载，尚未监听。</div>
   <button id="toggle" type="button" disabled>正在连接…</button>
 </main>

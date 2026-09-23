@@ -12,8 +12,11 @@ import type { InMemoryEventQueue } from "./queue.js";
 import { normalizeReplyBubbles } from "./replyBubbles.js";
 
 export const RESOURCE_URI = "ui://widget/cove-bridge.html";
+const railwayPublicDomain = process.env.RAILWAY_PUBLIC_DOMAIN?.trim();
 const PUBLIC_ORIGIN = process.env.BRIDGE_PUBLIC_ORIGIN?.trim()
+  || (railwayPublicDomain ? `https://${railwayPublicDomain}` : "")
   || `http://localhost:${process.env.PORT ?? "8787"}`;
+const DISPLAY_NAME = process.env.BRIDGE_DISPLAY_NAME?.trim() || "Cove Bridge";
 
 export function createMcpServer(
   queue: InMemoryEventQueue,
@@ -35,7 +38,7 @@ export function createMcpServer(
       ].join("\n"),
     },
   );
-  const html = buildListenerHtml();
+  const html = buildListenerHtml(DISPLAY_NAME);
   const neteaseAccountClient = new NeteaseClient(process.env.NETEASE_COOKIE?.trim() ?? "");
 
   registerNeteaseAccountTools(server, neteaseAccountClient);
@@ -56,7 +59,7 @@ export function createMcpServer(
             prefersBorder: false,
             csp: { connectDomains: [PUBLIC_ORIGIN], resourceDomains: [] },
           },
-          "openai/widgetDescription": "A manually controlled listener for Cove Bridge test events.",
+          "openai/widgetDescription": `${DISPLAY_NAME}：连接网易云一起听与当前 ChatGPT Work 对话。`,
         },
       }],
     }),
@@ -66,8 +69,8 @@ export function createMcpServer(
     server,
     "open_cove_bridge",
     {
-      title: "Open Cove Bridge",
-      description: "Mount the Cove Bridge listener component in an idle state. Only use when the user explicitly asks to open it. Opening does not start listening; the user starts listening from the component.",
+      title: `打开${DISPLAY_NAME}`,
+      description: `挂载${DISPLAY_NAME}监听组件。仅在用户明确要求打开时调用；挂载后仍需由用户在组件内开始监听。`,
       inputSchema: {},
       outputSchema: { ready: z.boolean(), listening: z.boolean() },
       annotations: {
@@ -82,7 +85,7 @@ export function createMcpServer(
     },
     async () => ({
       structuredContent: { ready: true, listening: false },
-      content: [{ type: "text", text: "Cove Bridge mounted in an idle state. Listening has not started." }],
+      content: [{ type: "text", text: `${DISPLAY_NAME}已挂载，但尚未开始监听。` }],
     }),
   );
 
