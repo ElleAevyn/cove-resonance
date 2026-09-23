@@ -61,6 +61,13 @@ test("widget is idle by default and initializes MCP Apps bridge", () => {
   assert.ok(html.indexOf("ui/update-model-context") < html.indexOf("ui/message"));
 });
 
+test("widget renders a customized display name safely", () => {
+  const html = buildListenerHtml('Aevyn 一起听 <script>alert("x")</script>');
+  assert.match(html, /Aevyn 一起听/);
+  assert.doesNotMatch(html, /<script>alert/);
+  assert.match(html, /&lt;script&gt;alert\(&quot;x&quot;\)&lt;\/script&gt;/);
+});
+
 test("reply delivery resumes without resending completed bubbles", () => {
   const queue = new InMemoryEventQueue();
   queue.enqueue({
