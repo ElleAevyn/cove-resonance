@@ -55,7 +55,6 @@ export function createMcpServer(
         text: html,
         _meta: {
           ui: {
-            domain: PUBLIC_ORIGIN,
             prefersBorder: false,
             csp: { connectDomains: [PUBLIC_ORIGIN], resourceDomains: [] },
           },
